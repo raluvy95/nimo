@@ -4,6 +4,8 @@
 
 > :warning: **DO NOT USE FOR ACTUAL STABLE AND RELIABLE**
 
+This little server only serves static website, similar to GitHub Pages. Unlikely to implement more than just that.
+
 I am not sure if this project will work for other platform except for Linux.
 
 # Usage
