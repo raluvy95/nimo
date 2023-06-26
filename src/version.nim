@@ -1,1 +1,0 @@
-let version_pkg* = "0.1.0"

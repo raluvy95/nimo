@@ -3,19 +3,18 @@ import os
 import strutils
 import strformat
 import handle
+import threadpool
+import debug
 
 var sockfd: SocketHandle
-var count: int
+
+const NIMO_VERSION = "0.1.0"
 
 proc handle_sigint(sig: cint) {.noconv.} =
     echo "SIGINT received, terminating gracefully."
     discard close(sockfd)
     quit()
 
-proc handle_segfault(sig: cint) {.noconv.} =
-    echo "GOT SEGFAULT'D - " & $count & "ATTEMPTS TO CRASH"
-    discard close(sockfd)
-    quit()
 
 proc main(): void =
     setStdIoUnbuffered()
@@ -42,8 +41,15 @@ proc main(): void =
         echo "There was problem binding socket"
         quit(QuitFailure)
 
+    # TODO: Reuse address of socket
+    # let optionValue: cint = 1
+    # let optionSize: int = sizeof(int)
+
+    # if setSockOpt(sockfd, SOL_SOCKET, SO_REUSEADDR, cast[ptr[byte]](addr optionValue), optionSize) < 0:
+    #     echo "setSockOpt(SO_REUSEADDR) failed"
+    #     quit(QuitFailure)
+
     signal(cast[cint](SIGINT), handle_sigint)
-    signal(cast[cint](SIGSEGV), handle_segfault)
 
     discard listen(sockfd, 10)
     echo fmt"Server listening on port {port}"
@@ -60,17 +66,12 @@ proc main(): void =
             var client_ip = newString(INET_ADDRSTRLEN)
             discard inet_ntop(AF_INET, addr client_addr.sin_addr, cstring(client_ip), INET_ADDRSTRLEN)
     
-            echo fmt"Received from {client_ip}"
+            debug fmt"Received from {client_ip}"
 
-            var thread_ip: Pthread
-            discard pthread_create(addr thread_ip, nil, handleClient, cast[pointer](client_sock))
-            discard pthread_detach(thread_ip)
-            count+=1
-            echo "COUNT " & $count
+            spawn(handleClient(client_sock, NIMO_VERSION))
         except CatchableError as e:
             echo e.getStackTrace()
             echo e.msg
-            echo "most likely got Segmentation Fault'd - " & $count & " attempts to crash"
             break
 
     discard close(sockfd)
