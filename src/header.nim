@@ -1,4 +1,5 @@
 import std/times
+import strformat
 
 # HTTP/1.1 200 OK
 # Date: Mon, 27 Jul 2009 12:28:53 GMT
@@ -42,12 +43,13 @@ proc parseHTTPStatus(status: int): string =
         return "Bad Gateway"
     else:
         return "Unknown"
-    
-proc responseHTTPHeader*(status: int, contentType: string, content: string): string =
-    """HTTP/1.1 """ & $status & " " & parseHTTPStatus(status) & """
-Date: """ & now().utc.format("ddd, dd MMM YYYY HH:mm:ss") & """ (GMT)
-Server: Nimo/0.0.0""" & """
-Content-Type: """ & contentType & """
+
+proc responseHTTPHeader*(status: int, contentType: string,
+        content: string): string =
+    fmt"""HTTP/1.1 {status} {parseHTTPStatus(status)}
+Date: {now().utc.format("ddd, dd MMM YYYY HH:mm:ss")} (GMT)
+Server: Nimo/0.0.0
+Content-Type: {contentType}
 Connection: close
 
 """ & content

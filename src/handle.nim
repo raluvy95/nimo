@@ -1,10 +1,11 @@
 import strutils
 import header
-import std/[posix, uri, times, mimetypes, sequtils]
+import std/[uri, times, mimetypes, sequtils]
+import net
 import strformat
 import debug
-
-const BUFFER_SIZE = 1024
+import parser
+import os
 
 type handleHTTPEventResponse = ref object
     response: string
@@ -18,7 +19,7 @@ proc getMime(fileName: string): string =
     if ext.len == 0:
         return "text/html"
     else:
-        return getMimeType(newMimetypes(), ext)
+        return getMimeType(newMimetypes(), ext, "text/plain")
 
 type HTTPRequest = ref object
     METHOD: string
@@ -29,7 +30,7 @@ proc getHTTPRequest(input: string): HTTPRequest =
     var r: HTTPRequest = HTTPRequest()
 
     var http_headers = input.splitLines()
-    
+
     let http = http_headers[0]
     http_headers.delete(0)
 
@@ -50,28 +51,29 @@ proc getHTTPRequest(input: string): HTTPRequest =
     r.PATH = parseUri(fmt"http://{http_host}{http_request[1]}")
     r.HTTP = http_request[2]
     return r
-    
+
 
 
 proc handleHTTPEvent(string_buffer: string): handleHTTPEventResponse =
     var r: handleHTTPEventResponse = handleHTTPEventResponse()
 
-    var request: HTTPRequest = getHTTPRequest($string_buffer)
-    let pathes = request.PATH.path.split("/")
+    var request: HTTPRequest = getHTTPRequest(string_buffer)
+    var pathes = request.PATH.path.split("/")
     var file: string
     try:
         file = pathes[pathes.high]
+        pathes.delete(pathes.high)
     except IndexDefect:
         file = ""
     if file.len() == 0:
         file = "index.html"
-    debug "The file is " & file & " on path " & pathes.join("/")
+
+    let arg: ArgParser = getParse()
+    debug fmt"""The file is {file} on path {arg.directory}{pathes.join("/")}"""
     try:
-        let response = readFile("public/" & file)
-        if file == "index.html":
-            r.response = response.replace("{{NIMO}}", "Nimo v0.1.0")
-        else:
-            r.response = response
+        let path: string = joinPath(arg.directory & pathes.join("/"), file)
+        debug path
+        r.response = readFile(path)
         debug "Response size is " & formatSize(r.response.len)
         r.contentType = getMime(file)
         r.code = 200
@@ -81,26 +83,25 @@ proc handleHTTPEvent(string_buffer: string): handleHTTPEventResponse =
         r.code = 404
     return r
 
-proc handleClient*(client: SocketHandle, version: string): void {.thread.} =
+proc handleClient*(client: Socket): void {.thread.} =
     var time_before_processing = cpuTime()
-    var buffer = alloc(BUFFER_SIZE * sizeof(char))
 
-    var bytes_received = recv(client, buffer, BUFFER_SIZE, 0)
-
-    if bytes_received > 0:
-        let string_buffer = cast[cstring](buffer)
+    var string_received: string = ""
+    let status = client.recv(string_received, 128)
+    if status < 0:
+        debug fmt"receiver returned {status}"
+    elif status > 0:
         try:
-            #echo string_buffer
+            let content: handleHTTPEventResponse = handleHTTPEvent(string_received)
+            let response: string = responseHTTPHeader(content.code,
+            content.contentType, content.response)
 
-            let content: handleHTTPEventResponse = handleHTTPEvent($string_buffer)
-            let response: string = responseHTTPHeader(content.code, content.contentType, content.response)
-
-            discard send(client, cstring(response), response.len, 0)
+            client.send(response)
         except CatchableError as e:
-            let response: string = responseHTTPHeader(500, "text/plain", e.getStackTrace() & "\n" & e.msg)
+            let response: string = responseHTTPHeader(500, "text/plain",
+            e.getStackTrace() & "\n" & e.msg)
             debug response
-            discard send(client, cstring(response), response.len, 0)
+            client.send(response)
 
-    dealloc(buffer)
-    discard close(client)
+    client.close()
     debug fmt"It took {(cpuTime() - time_before_processing) * 1000}ms to send"
